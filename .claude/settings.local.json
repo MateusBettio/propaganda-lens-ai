@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vercel:*)",
+      "Bash(npm run deploy:*)",
+      "Bash(npm start)",
+      "Bash(node:*)",
+      "Bash(del \"C:\\Users\\Mateus\\Documents\\Projects\\propaganda-lens-v2\\test-backend.js\")",
+      "Bash(rm:*)",
+      "WebFetch(domain:propaganda-lens-ai.vercel.app)",
+      "Bash(find:*)",
+      "Bash(curl:*)",
+      "Bash(npm install)",
+      "Bash(winget install:*)",
+      "Bash(npx supabase:*)",
+      "Bash(npx expo start:*)",
+      "Bash(supabase init:*)",
+      "Bash(where:*)",
+      "Bash(scoop:*)",
+      "Bash(powershell:*)",
+      "Bash(cmd /c \"scoop list\")",
+      "Bash(ls:*)",
+      "Bash(\"/c/Users/Mateus/scoop/shims/supabase.exe\" --version)",
+      "Bash(echo $PATH)",
+      "Bash(echo)",
+      "Bash(export:*)",
+      "Bash(supabase:*)",
+      "Bash(npm run login:*)",
+      "Bash(npm run logs:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": []
+  }
+}

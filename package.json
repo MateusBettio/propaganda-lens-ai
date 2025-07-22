@@ -1,0 +1,20 @@
+{
+  "name": "propaganda-lens-supabase",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "supabase start",
+    "functions:serve": "supabase functions serve",
+    "deploy": "node deploy.js",
+    "deploy:manual": "node deploy-simple.js",
+    "deploy:quick": "supabase functions deploy analyze --project-ref uccitemlxlymvxfzxdsi",
+    "db:reset": "supabase db reset",
+    "generate:types": "supabase gen types typescript --local > types/supabase.ts",
+    "login": "supabase login",
+    "link": "supabase link --project-ref uccitemlxlymvxfzxdsi",
+    "status": "supabase status",
+    "logs": "supabase functions logs analyze --project-ref uccitemlxlymvxfzxdsi"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
