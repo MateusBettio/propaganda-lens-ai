@@ -29,7 +29,25 @@
       "Bash(npm run logs:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(del nul)",
+      "Bash(gh repo create:*)",
+      "Bash(gh auth:*)",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(git remote add:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(npm install:*)",
+      "Bash(npx expo r:*)",
+      "Bash(npm run reset-cache:*)",
+      "Bash(npx react-native start:*)",
+      "Bash(npx expo install:*)",
+      "Bash(npm run reset:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm uninstall:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

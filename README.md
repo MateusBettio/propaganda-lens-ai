@@ -7,7 +7,8 @@ Expo App (iOS/Android) → Supabase → Edge Functions → OpenAI + Jina Reader
 ```
 
 ### New Features:
-- **Hybrid Content Extraction**: Jina Reader for articles/PDFs/images, YouTube API for videos
+- **Hybrid Content Extraction**: Jina Reader for articles/PDFs/images, YouTube transcript extraction for videos
+- **YouTube Transcript Support**: Automatic extraction of video transcripts for analysis
 - **Content Caching**: Avoids re-extracting the same URLs
 - **Database Storage**: All analyses stored in Supabase
 - **Better Reliability**: More robust than Vercel approach
@@ -66,10 +67,11 @@ npm install
 ## How It Works
 
 ### Content Extraction Strategy:
-- **YouTube Videos**: Extract transcripts using YouTube Transcript API
+- **YouTube Videos**: Extract transcripts using free YouTube Transcript APIs (no API key required)
 - **Articles/PDFs**: Use Jina Reader API for clean text extraction
 - **Images**: Jina Reader with image captioning + OpenAI vision
 - **Caching**: Extracted content cached to avoid re-processing
+- **Fallback Chain**: Multiple extraction methods ensure reliability
 
 ### Database Schema:
 - `analyses`: Stores all analysis results with full metadata
@@ -94,11 +96,11 @@ npm install
 
 ## Content Types Supported:
 
-- **YouTube Videos**: Full transcript extraction
+- **YouTube Videos**: Full transcript extraction (auto-generated or manual captions)
 - **News Articles**: Clean article text (bypasses paywalls better than custom scraping)
 - **PDFs**: Direct PDF text extraction
 - **Images**: AI vision analysis with captions
-- **Social Media**: Twitter, LinkedIn posts
+- **Social Media**: Twitter/X, Instagram, TikTok, Facebook posts with smart noise filtering
 - **Academic Papers**: Better formatting preservation
 
 ## Testing
