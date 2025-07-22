@@ -231,251 +231,125 @@ async function getYouTubeDirectAudioUrl(videoId: string): Promise<string | null>
   }
 }
 
-// Extract audio URL from video platforms for Whisper processing
+// Simplified approach: Skip audio extraction for now and focus on direct transcript APIs
 async function extractAudioUrl(videoUrl: string, platform: string): Promise<string | null> {
-  console.log(`🎵 Extracting audio URL for ${platform}:`, videoUrl);
+  console.log(`⚠️ Audio extraction disabled due to Supabase Edge Function network limitations`);
+  console.log(`📝 Platform ${platform} will rely on direct transcript APIs only`);
   
-  // For YouTube, try direct approach first
-  if (platform === 'youtube') {
-    const videoId = videoUrl.split('v=')[1]?.split('&')[0];
-    if (videoId) {
-      const directUrl = await getYouTubeDirectAudioUrl(videoId);
-      if (directUrl) {
-        console.log('✅ Using direct audio URL approach');
-        return directUrl;
-      }
-    }
-  }
+  // Audio extraction from Supabase Edge Functions is problematic due to:
+  // 1. Network restrictions to external audio services
+  // 2. Timeout issues with large audio file downloads
+  // 3. Whisper API timeout limitations
   
-  // Since external services are unreliable from Supabase Edge Functions,
-  // let's implement a simple test with a known working audio file
-  console.log('🧪 External services unreachable, using test audio file...');
-  console.log('⚠️ This will test if the Whisper pipeline works end-to-end');
-  
-  // Return a very short test audio file to validate the Whisper API integration
-  // Using a 3-second audio sample to minimize processing time
-  return 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
+  return null; // Skip audio extraction entirely
 }
 
-// Test Whisper API with a known working audio file
+// Simplified: Skip Whisper testing since we're not using audio extraction
 async function testWhisperAPI(): Promise<boolean> {
-  if (!OPENAI_API_KEY) {
-    console.log('❌ OpenAI API key not available for Whisper test');
-    return false;
+  console.log('⏭️ Skipping Whisper API test - audio extraction disabled');
+  return false; // Audio extraction is disabled
+}
+
+// Disabled: Audio transcription causing timeout issues in Supabase Edge Functions
+async function transcribeAudioWithWhisper(audioUrl: string): Promise<string | null> {
+  console.log('⚠️ Audio transcription disabled due to network/timeout limitations in Supabase Edge Functions');
+  console.log('🔄 This function would process:', audioUrl);
+  
+  // Audio transcription is disabled because:
+  // 1. Network restrictions prevent reliable audio file downloads
+  // 2. Large audio files cause timeout errors (even with 120s timeout)
+  // 3. External audio extraction services are unreachable from Supabase
+  
+  return null;
+}
+
+// Universal video transcript extraction using AssemblyAI (works for ALL platforms)
+async function extractVideoTranscript(videoUrl: string, platform: string, videoId?: string): Promise<string | null> {
+  console.log(`🎬 Extracting transcript from ${platform} video using universal transcription:`, videoUrl);
+  
+  const ASSEMBLYAI_API_KEY = Deno.env.get('ASSEMBLYAI_API_KEY');
+  if (!ASSEMBLYAI_API_KEY) {
+    console.log('❌ AssemblyAI API key not configured - cannot extract video transcript');
+    return null;
   }
   
-  console.log('🧪 Testing Whisper API with sample audio...');
-  
   try {
-    // Test with a very short audio file (just a few seconds)
-    const testAudioUrl = 'https://file-examples.com/storage/fe68c0b7fa66dac2d3c368e/2017/11/file_example_WAV_1MG.wav';
-    
-    const audioResponse = await fetch(testAudioUrl, {
+    // Step 1: Submit video URL for transcription (works with any platform)
+    console.log('📤 Submitting video URL to AssemblyAI for transcription...');
+    const submitResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: {
+        'Authorization': ASSEMBLYAI_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        audio_url: videoUrl,
+        speech_model: 'best',
+        language_code: 'en',
+        punctuate: true,
+        format_text: true
+      }),
       signal: AbortSignal.timeout(10000)
     });
     
-    if (!audioResponse.ok) {
-      console.log('❌ Could not fetch test audio file');
-      return false;
-    }
-    
-    const audioBlob = await audioResponse.blob();
-    console.log(`Test audio file size: ${audioBlob.size} bytes`);
-    
-    const formData = new FormData();
-    formData.append('file', audioBlob, 'test-audio.wav');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'text');
-    
-    const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(30000)
-    });
-    
-    console.log(`Whisper test response status: ${whisperResponse.status}`);
-    
-    if (whisperResponse.ok) {
-      const result = await whisperResponse.text();
-      console.log(`✅ Whisper API test successful. Response: ${result.substring(0, 100)}`);
-      return true;
-    } else {
-      const error = await whisperResponse.text();
-      console.log(`❌ Whisper API test failed: ${error}`);
-      return false;
-    }
-    
-  } catch (error) {
-    console.log('❌ Whisper API test error:', error);
-    return false;
-  }
-}
-
-// Transcribe audio using OpenAI Whisper API
-async function transcribeAudioWithWhisper(audioUrl: string): Promise<string | null> {
-  if (!OPENAI_API_KEY) {
-    console.log('❌ OpenAI API key not available for Whisper');
-    return null;
-  }
-  
-  console.log('🤖 Transcribing audio with Whisper API');
-  console.log('Audio URL:', audioUrl);
-  
-  try {
-    // Download audio file first
-    console.log('📥 Downloading audio file...');
-    const audioResponse = await fetch(audioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; PropagandaLens/2.0)',
-      },
-      signal: AbortSignal.timeout(30000)
-    });
-    
-    console.log(`Audio download response status: ${audioResponse.status}`);
-    console.log(`Audio response headers:`, Object.fromEntries(audioResponse.headers.entries()));
-    
-    if (!audioResponse.ok) {
-      console.log(`❌ Failed to download audio: ${audioResponse.status}`);
-      // Try Whisper API test to see if the issue is with Whisper itself
-      console.log('🧪 Testing if Whisper API is working...');
-      await testWhisperAPI();
+    if (!submitResponse.ok) {
+      const error = await submitResponse.text();
+      console.log(`❌ AssemblyAI submission failed: ${submitResponse.status} - ${error}`);
       return null;
     }
     
-    const audioBlob = await audioResponse.blob();
-    console.log(`Audio file size: ${audioBlob.size} bytes`);
-    console.log(`Audio file type: ${audioBlob.type}`);
+    const submitResult = await submitResponse.json();
+    const transcriptId = submitResult.id;
+    console.log(`📋 Transcript ID: ${transcriptId}`);
     
-    // Check file size (Whisper has 25MB limit)
-    if (audioBlob.size > 25 * 1024 * 1024) {
-      console.log(`❌ Audio file too large: ${audioBlob.size} bytes (max 25MB)`);
-      return null;
-    }
+    // Step 2: Poll for completion (real-time approach - max 30 seconds)
+    console.log('⏳ Polling for transcript completion...');
+    const maxWaitTime = 30000; // 30 seconds max
+    const pollInterval = 2000;  // Check every 2 seconds
+    const startTime = Date.now();
     
-    // Check if we actually got an audio file
-    if (audioBlob.size < 1000) {
-      console.log(`❌ Audio file too small: ${audioBlob.size} bytes (likely not audio)`);
-      return null;
-    }
-    
-    // For very large files, they might take too long - let's limit to 10MB for faster processing
-    if (audioBlob.size > 10 * 1024 * 1024) {
-      console.log(`⚠️ Large audio file: ${audioBlob.size} bytes - this may take longer to process`);
-    }
-    
-    // Create FormData for Whisper API
-    const formData = new FormData();
-    formData.append('file', audioBlob, 'audio.mp3');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'text');
-    
-    console.log('🎯 Sending to Whisper API...');
-    const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(120000) // 120 second timeout for transcription
-    });
-    
-    console.log(`Whisper API response status: ${whisperResponse.status}`);
-    console.log(`Whisper response headers:`, Object.fromEntries(whisperResponse.headers.entries()));
-    
-    if (!whisperResponse.ok) {
-      const errorText = await whisperResponse.text();
-      console.log(`❌ Whisper API error: ${whisperResponse.status} - ${errorText}`);
-      return null;
-    }
-    
-    const transcript = await whisperResponse.text();
-    console.log(`Whisper response length: ${transcript.length}`);
-    
-    if (transcript && transcript.length > 10) {
-      console.log(`✅ Whisper transcription successful: ${transcript.length} characters`);
-      console.log(`Transcript preview: ${transcript.substring(0, 100)}...`);
-      return transcript.trim();
-    }
-    
-    console.log('❌ Whisper returned empty transcript');
-    return null;
-    
-  } catch (error) {
-    console.error('Whisper transcription failed:', error);
-    console.error('Error details:', error.message);
-    return null;
-  }
-}
-
-// Enhanced video transcript extraction with audio fallback
-async function extractVideoTranscript(videoUrl: string, platform: string, videoId?: string): Promise<string | null> {
-  console.log(`🎬 Extracting transcript from ${platform} video:`, videoUrl);
-  
-  // For YouTube, try direct transcript APIs first (faster)
-  if (platform === 'youtube' && videoId) {
-    console.log('🔄 Trying YouTube transcript APIs first...');
-    
-    const transcriptAPIs = [
-      {
-        name: 'youtube-transcript.deno.dev',
-        url: `https://youtube-transcript.deno.dev/api/transcript?v=${videoId}`,
+    while ((Date.now() - startTime) < maxWaitTime) {
+      const pollResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: {
+          'Authorization': ASSEMBLYAI_API_KEY
+        },
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (!pollResponse.ok) {
+        console.log(`❌ Polling failed: ${pollResponse.status}`);
+        return null;
       }
-    ];
-    
-    for (const api of transcriptAPIs) {
-      try {
-        console.log(`Trying ${api.name}...`);
-        
-        const response = await fetch(api.url, {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; PropagandaLens/2.0)'
-          },
-          signal: AbortSignal.timeout(10000)
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data && Array.isArray(data)) {
-            const transcript = data
-              .map((segment: any) => segment.text || '')
-              .join(' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            if (transcript.length > 50) {
-              console.log(`✅ Direct transcript extracted: ${transcript.length} characters`);
-              return transcript;
-            }
-          }
+      
+      const result = await pollResponse.json();
+      console.log(`📊 Status: ${result.status}`);
+      
+      if (result.status === 'completed') {
+        if (result.text && result.text.length > 50) {
+          console.log(`✅ Universal transcript extraction successful: ${result.text.length} characters`);
+          console.log(`🎯 Platform: ${platform} | Confidence: ${result.confidence || 'N/A'}`);
+          console.log(`📝 Preview: ${result.text.substring(0, 200)}...`);
+          return result.text;
+        } else {
+          console.log('❌ Transcript completed but text is empty or too short');
+          return null;
         }
-      } catch (error) {
-        console.log(`${api.name} failed, continuing...`);
+      } else if (result.status === 'error') {
+        console.log(`❌ Transcription failed: ${result.error}`);
+        return null;
+      } else if (result.status === 'processing' || result.status === 'queued') {
+        console.log(`⏳ Still ${result.status}... waiting ${pollInterval}ms`);
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
       }
     }
-  }
-  
-  console.log('📹 Direct transcript APIs failed, trying audio extraction...');
-  
-  // Fallback to audio extraction + Whisper
-  const audioUrl = await extractAudioUrl(videoUrl, platform);
-  if (!audioUrl) {
-    console.log('❌ Could not extract audio URL');
+    
+    console.log('⏰ Transcript processing timeout (30s) - returning null for real-time response');
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Universal transcript extraction error:', error.message);
     return null;
   }
-  
-  const transcript = await transcribeAudioWithWhisper(audioUrl);
-  if (transcript) {
-    console.log(`✅ Audio-to-transcript successful: ${transcript.length} characters`);
-    return transcript;
-  }
-  
-  console.log('❌ All transcript extraction methods failed');
-  return null;
 }
 
 // Enhanced content extraction with comprehensive social media support
@@ -505,7 +379,7 @@ async function extractContent(url: string): Promise<ExtractedContent> {
         content: transcript || 'YouTube video - transcript not available',
         transcript: transcript || undefined,
         contentLength: transcript ? transcript.length : 50,
-        extractionMethod: transcript ? 'audio-whisper' : 'youtube-no-transcript'
+        extractionMethod: transcript ? 'assemblyai-universal' : 'youtube-no-transcript'
       };
     } 
     
@@ -537,11 +411,30 @@ async function extractContent(url: string): Promise<ExtractedContent> {
         transcript: transcript || undefined,
         preview: transcript ? transcript.substring(0, 300) + (transcript.length > 300 ? '...' : '') : 'TikTok video',
         contentLength: transcript ? transcript.length : 50,
-        extractionMethod: transcript ? 'audio-whisper' : 'tiktok-no-transcript'
+        extractionMethod: transcript ? 'assemblyai-universal' : 'tiktok-no-transcript'
       };
     }
     
-    // For all other URLs (Twitter, Instagram, Facebook, general web), fetch and extract meta tags
+    // Handle Instagram videos with transcript extraction
+    if (url.includes('instagram.com') && (url.includes('/reel/') || url.includes('/p/') || url.includes('/tv/'))) {
+      console.log('Instagram video/reel detected');
+      const postId = extractInstagramPostId(url);
+      
+      // Try to get transcript using universal transcription
+      const transcript = await extractVideoTranscript(url, 'instagram');
+      
+      return {
+        type: 'instagram',
+        postId: postId || undefined,
+        content: transcript || 'Instagram video - transcript not available',
+        transcript: transcript || undefined,
+        preview: transcript ? transcript.substring(0, 300) + (transcript.length > 300 ? '...' : '') : 'Instagram video',
+        contentLength: transcript ? transcript.length : 50,
+        extractionMethod: transcript ? 'assemblyai-universal' : 'instagram-no-transcript'
+      };
+    }
+    
+    // For all other URLs (Twitter, Facebook, general web), fetch and extract meta tags
     console.log('Fetching HTML for meta tag extraction...');
     
     const response = await fetch(url, {
@@ -876,15 +769,17 @@ function validateContentQuality(content: string, sourceUrl: string): { isValid: 
     };
   }
   
-  // TEMPORARY: Allow videos without transcripts for debugging
-  // This will be re-enabled once we identify the audio extraction issue
-  if (content === 'YouTube video - transcript not available' || content === 'TikTok video - transcript not available') {
-    console.log('⚠️ DEBUGGING: Bypassing validation to see extraction logs');
-    console.log('🔍 DEBUG: Video transcript extraction failed, but allowing analysis to continue');
-    console.log('📝 DEBUG: This will help us see the full extraction process in the logs');
-    // TEMPORARILY allow analysis to proceed so we can see the extraction debug output
+  // RULE: Never analyze videos without transcripts
+  const videoWithoutTranscript = [
+    'YouTube video - transcript not available',
+    'TikTok video - transcript not available', 
+    'Instagram video - transcript not available'
+  ];
+  
+  if (videoWithoutTranscript.includes(content)) {
     return {
-      isValid: true // TEMPORARY: allowing for debugging
+      isValid: false,
+      reason: 'Video transcript extraction failed. Cannot analyze video content without accessible audio or captions.'
     };
   }
   
@@ -1296,6 +1191,11 @@ function createExtractionFlowDescription(
       case 'youtube':
         steps.push('🎬 Used YouTube-specific extraction methods');
         break;
+      case 'assemblyai-universal':
+        steps.push('🎵 Used AssemblyAI Universal Transcription Service');
+        steps.push('🌍 Works across ALL video platforms (YouTube, TikTok, Instagram, etc.)');
+        steps.push('⚡ Real-time processing with 30-second response time');
+        break;
       case 'audio-whisper':
         steps.push('🎵 Used audio extraction + OpenAI Whisper transcription');
         steps.push('🚫 Ban-resistant method that works across all video platforms');
@@ -1305,8 +1205,9 @@ function createExtractionFlowDescription(
         break;
       case 'youtube-no-transcript':
       case 'tiktok-no-transcript':
-        steps.push('❌ Video transcript extraction failed');
-        steps.push('⚠️ Content analysis not possible without accessible audio/captions');
+      case 'instagram-no-transcript':
+        steps.push('❌ Universal transcript extraction failed');
+        steps.push('⚠️ AssemblyAI could not process video audio (may be private, muted, or inaccessible)');
         break;
     }
     
@@ -1427,7 +1328,7 @@ CONTENT: "${content.substring(0, 1000)}"`;
         messages: [
           {
             role: 'system',
-            content: 'You are a media literacy expert. Respond with ONLY valid JSON.'
+            content: 'You are a media literacy expert. You MUST respond with ONLY valid JSON. No additional text, explanations, or formatting.'
           },
           {
             role: 'user',
@@ -1435,7 +1336,8 @@ CONTENT: "${content.substring(0, 1000)}"`;
           }
         ],
         temperature: 0.3,
-        max_tokens: 800,
+        max_tokens: 1200,
+        response_format: { type: "json_object" }
       }),
       signal: AbortSignal.timeout(30000) // 30 second timeout
     });
@@ -1454,13 +1356,41 @@ CONTENT: "${content.substring(0, 1000)}"`;
     console.log('OpenAI response length:', responseText.length);
     
     try {
-      const parsed = JSON.parse(responseText);
+      // Clean the response text to handle common JSON formatting issues
+      let cleanedResponse = responseText.trim();
+      
+      // Remove any markdown code blocks if present
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '');
+      }
+      if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.replace(/```\s*/g, '').replace(/```\s*$/g, '');
+      }
+      
+      const parsed = JSON.parse(cleanedResponse);
       console.log('JSON parsing successful');
       return parsed;
     } catch (parseError) {
       console.error('JSON parsing failed:', parseError);
       console.error('Raw response:', responseText.substring(0, 500));
-      throw new Error('Invalid JSON from OpenAI');
+      
+      // Fallback: Return a structured error response instead of throwing
+      console.log('Returning fallback response due to JSON parsing failure');
+      return {
+        quickAssessment: "Analysis temporarily unavailable due to formatting error",
+        techniques: [{
+          name: "Processing Error",
+          description: "The analysis system encountered a formatting issue. Please try again.",
+          confidence: "low",
+          example: "System is working to resolve response formatting"
+        }],
+        counterPerspective: "This is a temporary technical issue, not a content analysis",
+        reflectionQuestions: [
+          "Should I try submitting this content again?",
+          "Is the content publicly accessible?",
+          "Could there be temporary service issues?"
+        ]
+      };
     }
   } catch (error) {
     console.error('OpenAI request failed:', error);

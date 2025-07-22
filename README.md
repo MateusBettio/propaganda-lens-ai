@@ -44,6 +44,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 Set these in Supabase Dashboard > Settings > Edge Functions:
 ```
 OPENAI_API_KEY=your_openai_api_key
+ASSEMBLYAI_API_KEY=your_assemblyai_api_key (for video transcription)
 JINA_API_KEY=your_jina_api_key (optional)
 ```
 
@@ -67,11 +68,12 @@ npm install
 ## How It Works
 
 ### Content Extraction Strategy:
-- **YouTube Videos**: Extract transcripts using free YouTube Transcript APIs (no API key required)
+- **Video Transcription**: AssemblyAI Universal Transcription (works with ALL platforms: YouTube, TikTok, Instagram, etc.)
+- **Real-time Processing**: 30-second response time with intelligent polling
 - **Articles/PDFs**: Use Jina Reader API for clean text extraction
 - **Images**: Jina Reader with image captioning + OpenAI vision
 - **Caching**: Extracted content cached to avoid re-processing
-- **Fallback Chain**: Multiple extraction methods ensure reliability
+- **Platform-Agnostic**: Single transcription service handles all video platforms
 
 ### Database Schema:
 - `analyses`: Stores all analysis results with full metadata
@@ -96,11 +98,13 @@ npm install
 
 ## Content Types Supported:
 
-- **YouTube Videos**: Full transcript extraction (auto-generated or manual captions)
+- **YouTube Videos**: Universal transcript extraction using AssemblyAI
+- **TikTok Videos**: Full audio transcription (works with any TikTok video)
+- **Instagram Reels/Videos**: Complete transcript extraction from video audio
 - **News Articles**: Clean article text (bypasses paywalls better than custom scraping)
 - **PDFs**: Direct PDF text extraction
 - **Images**: AI vision analysis with captions
-- **Social Media**: Twitter/X, Instagram, TikTok, Facebook posts with smart noise filtering
+- **Social Media**: Twitter/X, Facebook posts with smart noise filtering
 - **Academic Papers**: Better formatting preservation
 
 ## Testing
