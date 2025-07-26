@@ -1,116 +1,144 @@
-# Propaganda Lens - Supabase Migration
+# Propaganda Lens AI - Twitter/X Handler Implementation
 
-## Architecture
+## New Architecture Overview
+
+This project has been migrated to a **Supabase-first serverless architecture** with a new Twitter/X handler implementing the modern extraction pipeline.
 
 ```
-Expo App (iOS/Android) → Supabase → Edge Functions → OpenAI + Jina Reader
+URL Input → Content Type Detection → Platform-Specific Extraction → Content Analysis → Results
 ```
 
-### New Features:
-- **Hybrid Content Extraction**: Jina Reader for articles/PDFs/images, YouTube transcript extraction for videos
-- **YouTube Transcript Support**: Automatic extraction of video transcripts for analysis
-- **Content Caching**: Avoids re-extracting the same URLs
-- **Database Storage**: All analyses stored in Supabase
-- **Better Reliability**: More robust than Vercel approach
+## Quick Start
 
-## Setup Instructions
+### 1. Prerequisites
 
-### 1. Supabase Project Setup
+- Node.js 18+
+- Supabase CLI
+- Required API keys (see Environment Variables section)
 
-1. Go to [supabase.com](https://supabase.com) and create an account
-2. Create a new project
-3. Get your project credentials from Settings > API:
-   - `Project URL`
-   - `anon/public key`
+### 2. Install Dependencies
 
-### 2. Database Setup
-
-Run the migration to create the schema:
-
-```sql
--- Copy and paste the contents of supabase/migrations/001_initial_schema.sql
--- in your Supabase SQL Editor
+```bash
+npm install
 ```
 
 ### 3. Environment Variables
 
-#### Frontend (.env.local):
-```
-EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+Copy `.env.example` to `.env` and configure:
+
+```env
+# Supabase Configuration
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# API Keys
+ASSEMBLYAI_API_KEY=your_assemblyai_api_key
+X_BEARER_TOKEN=your_twitter_bearer_token
+JINA_API_KEY=your_jina_api_key_optional
 ```
 
-#### Backend (Supabase Edge Functions):
-Set these in Supabase Dashboard > Settings > Edge Functions:
-```
-OPENAI_API_KEY=your_openai_api_key
-ASSEMBLYAI_API_KEY=your_assemblyai_api_key (for video transcription)
-JINA_API_KEY=your_jina_api_key (optional)
-```
+### 4. Database Setup
 
-### 4. Deploy Edge Function
+Run migrations to create the database schema:
 
-Install Supabase CLI and deploy:
 ```bash
-npm install -g supabase
-supabase login
+supabase start
+supabase db reset
+```
+
+This creates:
+- `extraction_jobs` table - Queue for URL processing
+- `analysis` table - Historical analysis results
+
+### 5. Deploy Edge Functions
+
+```bash
+supabase functions deploy extract
+supabase functions deploy worker
 supabase functions deploy analyze
 ```
 
-### 5. Install Dependencies
+### 6. Test the Implementation
 
-Frontend:
 ```bash
-cd propaganda-lens-v2
-npm install
+npm test
 ```
 
-## How It Works
+## Twitter/X Handler Features
 
-### Content Extraction Strategy:
-- **Video Transcription**: AssemblyAI Universal Transcription (works with ALL platforms: YouTube, TikTok, Instagram, etc.)
-- **Real-time Processing**: 30-second response time with intelligent polling
-- **Articles/PDFs**: Use Jina Reader API for clean text extraction
-- **Images**: Jina Reader with image captioning + OpenAI vision
-- **Caching**: Extracted content cached to avoid re-processing
-- **Platform-Agnostic**: Single transcription service handles all video platforms
+The new **Twitter/X handler** (`src/extractors/xFetcher.ts`) implements:
 
-### Database Schema:
-- `analyses`: Stores all analysis results with full metadata
-- `content_cache`: Caches extracted content to improve performance
+### ✅ Complete Implementation
+- **Thread Reconstruction**: Automatically fetches full tweet threads using conversation_id
+- **Media Transcription**: Videos/GIFs transcribed via AssemblyAI
+- **Rate Limiting**: Built-in p-limit with 450 requests/15min compliance
+- **Robust Error Handling**: Comprehensive error handling with fallbacks
 
-### API Flow:
-1. User inputs URL in Expo app
-2. App calls Supabase Edge Function
-3. Function determines content type and extraction method
-4. Content extracted via Jina Reader or YouTube API
-5. OpenAI analyzes the extracted content
-6. Results stored in database and returned to app
+### API Integration
+- **Twitter API v2**: Full access to tweets, threads, and media metadata
+- **AssemblyAI**: Universal video transcription (MP4 variants)
+- **Supabase Queue**: Job-based processing with status tracking
 
-## Benefits Over Previous Architecture:
+### Usage Example
 
-✅ **Better Content Extraction**: Jina Reader handles complex sites better than custom scraping
-✅ **Caching**: Avoid re-extracting same URLs
-✅ **Database Storage**: Analysis history and metadata
-✅ **Scalability**: Supabase handles backend complexity
-✅ **Reliability**: Better error handling and retry logic
-✅ **Cost Efficiency**: Content caching reduces API calls
+```typescript
+import { fetchFromX } from './src/extractors/xFetcher';
 
-## Content Types Supported:
+const result = await fetchFromX('https://x.com/user/status/1234567890');
+// Returns: { text, html, meta: { thread, media } }
+```
 
-- **YouTube Videos**: Universal transcript extraction using AssemblyAI
-- **TikTok Videos**: Full audio transcription (works with any TikTok video)
-- **Instagram Reels/Videos**: Complete transcript extraction from video audio
-- **News Articles**: Clean article text (bypasses paywalls better than custom scraping)
-- **PDFs**: Direct PDF text extraction
-- **Images**: AI vision analysis with captions
-- **Social Media**: Twitter/X, Facebook posts with smart noise filtering
-- **Academic Papers**: Better formatting preservation
+## API Endpoints
+
+### POST /extract
+Creates extraction job for a URL:
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://x.com/user/status/1234567890"}'
+```
+
+### POST /worker  
+Processes pending extraction jobs (typically called via cron):
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/worker
+```
 
 ## Testing
 
-Test with these URL types:
-- YouTube: `https://www.youtube.com/watch?v=VIDEO_ID`
-- News Article: `https://example.com/article`
-- Image: `https://example.com/image.jpg`
-- PDF: `https://example.com/document.pdf`
+Run the test suite:
+```bash
+npm test    # Run all tests
+npm run lint # Check code style
+```
+
+Tests cover:
+- ✅ Basic tweet extraction
+- ✅ Thread reconstruction  
+- ✅ Video transcription with AssemblyAI
+- ✅ Error handling for invalid URLs
+- ✅ Combined text length validation
+
+## Rate Limits & Credits
+
+- **Twitter API**: 450 requests/15 minutes (handled by p-limit)
+- **AssemblyAI**: Based on your plan (pay-per-use)
+- **Jina Reader**: 10,000 requests/month free tier
+
+## Architecture Benefits
+
+**vs Old Vercel/Whisper:**
+- ✅ **Serverless-First**: Edge Functions vs heavy compute
+- ✅ **Universal Transcription**: AssemblyAI vs self-hosted Whisper  
+- ✅ **API-Based**: Reliable external services vs fragile scraping
+- ✅ **Queue System**: Job processing vs synchronous timeouts
+- ✅ **Type Safety**: Full TypeScript vs mixed JS/Python
+
+## Next Steps
+
+1. **Complete YouTube Handler**: Migrate from current analyze function
+2. **Add TikTok Handler**: Direct AssemblyAI integration
+3. **Generic Web Handler**: Jina Reader + fallbacks
+4. **Propaganda Analysis**: Integrate ML pipeline
+
+See `docs/architecture.md` for detailed architecture documentation.

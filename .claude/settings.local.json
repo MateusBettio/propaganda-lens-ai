@@ -47,7 +47,11 @@
       "Bash(npm run reset:*)",
       "Bash(taskkill:*)",
       "Bash(npm uninstall:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir:*)",
+      "Bash(npm i:*)",
+      "Bash(npm test)",
+      "Bash(npm run lint)"
     ],
     "deny": []
   }

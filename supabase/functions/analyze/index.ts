@@ -49,6 +49,9 @@ interface ExtractedContent {
   contentLength: number;
   extractionMethod: 'jina' | 'youtube' | 'meta-tags' | 'custom';
   error?: string;
+  embedUrl?: string;
+  embedHtml?: string;
+  tweetType?: 'humor' | 'meme' | 'serious' | 'news' | 'opinion' | 'unknown';
 }
 
 interface AnalysisResult {
@@ -122,6 +125,24 @@ function extractYouTubeVideoId(url: string): string | null {
 function extractTwitterId(url: string): string | null {
   const match = url.match(/(?:twitter|x)\.com\/[^/]+\/status\/(\d+)/);
   return match ? match[1] : null;
+}
+
+// Generate Twitter/X embed URL
+function generateTwitterEmbedUrl(url: string): string {
+  // Twitter's oEmbed endpoint works with both twitter.com and x.com URLs
+  const encodedUrl = encodeURIComponent(url);
+  return `https://publish.twitter.com/oembed?url=${encodedUrl}&omit_script=true&dnt=true`;
+}
+
+// Generate Twitter/X embed HTML
+function generateTwitterEmbedHtml(url: string, tweetId: string | null): string {
+  // Use iframe embed with minimal chrome - most reliable in WebView
+  if (tweetId) {
+    return `<iframe src="https://platform.twitter.com/embed/Tweet.html?id=${tweetId}&theme=light&conversation=none&cards=hidden&chrome=nofooter" width="100%" height="100%" frameborder="0" scrolling="no" allowtransparency="true"></iframe>`;
+  }
+  // Fallback to iframe with URL
+  const encodedUrl = encodeURIComponent(url);
+  return `<iframe src="https://platform.twitter.com/embed/Tweet.html?url=${encodedUrl}&theme=light&conversation=none&cards=hidden&chrome=nofooter" width="100%" height="100%" frameborder="0" scrolling="no" allowtransparency="true"></iframe>`;
 }
 
 function extractTikTokVideoId(url: string): string | null {
@@ -250,27 +271,92 @@ async function testWhisperAPI(): Promise<boolean> {
   return false; // Audio extraction is disabled
 }
 
-// Disabled: Audio transcription causing timeout issues in Supabase Edge Functions
-async function transcribeAudioWithWhisper(audioUrl: string): Promise<string | null> {
-  console.log('⚠️ Audio transcription disabled due to network/timeout limitations in Supabase Edge Functions');
-  console.log('🔄 This function would process:', audioUrl);
+
+// Platform-specific transcript extraction fallback (when AssemblyAI fails)
+async function tryPlatformSpecificTranscript(videoUrl: string, platform: string, videoId?: string): Promise<string | null> {
+  console.log(`🔄 FALLBACK: Starting platform-specific transcript extraction`);
+  console.log(`🔄 FALLBACK: Platform=${platform}, VideoId=${videoId}, URL=${videoUrl}`);
   
-  // Audio transcription is disabled because:
-  // 1. Network restrictions prevent reliable audio file downloads
-  // 2. Large audio files cause timeout errors (even with 120s timeout)
-  // 3. External audio extraction services are unreachable from Supabase
+  if (platform === 'youtube' && videoId) {
+    console.log(`🎬 FALLBACK: Processing YouTube video with ID: ${videoId}`);
+    
+    // Use YouTube's direct API as fallback
+    const youtubeAPIs = [
+      {
+        name: 'YouTube Timedtext API',
+        url: `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}`
+      },
+      {
+        name: 'YouTube Timedtext with Auto-Generated',
+        url: `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&name=&kind=asr`
+      }
+    ];
+    
+    for (const api of youtubeAPIs) {
+      try {
+        console.log(`🔍 FALLBACK: Attempting ${api.name}: ${api.url}`);
+        const response = await fetch(api.url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/xml, application/xml, text/plain'
+          },
+          signal: AbortSignal.timeout(15000)
+        });
+        
+        console.log(`🔍 FALLBACK: ${api.name} response status: ${response.status}`);
+        
+        if (response.ok) {
+          const data = await response.text();
+          console.log(`🔍 FALLBACK: ${api.name} response length: ${data.length}`);
+          console.log(`🔍 FALLBACK: ${api.name} response preview: ${data.substring(0, 200)}...`);
+          
+          if (data && data.length > 50) {
+            // Clean XML/HTML tags and extract text
+            const cleanedData = data
+              .replace(/<[^>]*>/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            if (cleanedData.length > 50) {
+              console.log(`✅ FALLBACK SUCCESS: ${api.name} extracted ${cleanedData.length} characters`);
+              return cleanedData;
+            } else {
+              console.log(`⚠️ FALLBACK: ${api.name} returned data but content too short after cleaning`);
+            }
+          } else {
+            console.log(`⚠️ FALLBACK: ${api.name} returned empty or very short response`);
+          }
+        } else {
+          const errorText = await response.text().catch(() => 'Could not read error');
+          console.log(`❌ FALLBACK: ${api.name} failed with ${response.status}: ${errorText.substring(0, 200)}`);
+        }
+      } catch (error) {
+        console.log(`❌ FALLBACK: ${api.name} threw error: ${error.message}`);
+      }
+    }
+    
+    console.log(`❌ FALLBACK: All YouTube APIs failed for video ${videoId}`);
+  } else {
+    console.log(`❌ FALLBACK: No fallback available for platform ${platform} (only YouTube supported)`);
+  }
   
+  console.log(`❌ FALLBACK COMPLETE: No transcript found via platform-specific methods`);
   return null;
 }
 
-// Universal video transcript extraction using AssemblyAI (works for ALL platforms)
+// Universal video transcript extraction using AssemblyAI with fallbacks
 async function extractVideoTranscript(videoUrl: string, platform: string, videoId?: string): Promise<string | null> {
   console.log(`🎬 Extracting transcript from ${platform} video using universal transcription:`, videoUrl);
   
   const ASSEMBLYAI_API_KEY = Deno.env.get('ASSEMBLYAI_API_KEY');
   if (!ASSEMBLYAI_API_KEY) {
-    console.log('❌ AssemblyAI API key not configured - cannot extract video transcript');
-    return null;
+    console.log('❌ AssemblyAI API key not configured - trying platform-specific fallback');
+    return await tryPlatformSpecificTranscript(videoUrl, platform, videoId);
   }
   
   try {
@@ -335,20 +421,24 @@ async function extractVideoTranscript(videoUrl: string, platform: string, videoI
           return null;
         }
       } else if (result.status === 'error') {
-        console.log(`❌ Transcription failed: ${result.error}`);
-        return null;
+        console.log(`❌ AssemblyAI transcription failed: ${result.error}`);
+        console.log('🔄 FALLBACK TRIGGERED: Trying platform-specific transcript extraction...');
+        const fallbackResult = await tryPlatformSpecificTranscript(videoUrl, platform, videoId);
+        console.log(`🔄 FALLBACK RESULT: ${fallbackResult ? 'SUCCESS' : 'FAILED'} - Length: ${fallbackResult?.length || 0}`);
+        return fallbackResult;
       } else if (result.status === 'processing' || result.status === 'queued') {
         console.log(`⏳ Still ${result.status}... waiting ${pollInterval}ms`);
         await new Promise(resolve => setTimeout(resolve, pollInterval));
       }
     }
     
-    console.log('⏰ Transcript processing timeout (30s) - returning null for real-time response');
-    return null;
+    console.log('⏰ AssemblyAI timeout (30s) - trying platform-specific fallback...');
+    return await tryPlatformSpecificTranscript(videoUrl, platform, videoId);
     
   } catch (error) {
-    console.error('❌ Universal transcript extraction error:', error.message);
-    return null;
+    console.error('❌ AssemblyAI error:', error.message);
+    console.log('🔄 Trying platform-specific fallback due to error...');
+    return await tryPlatformSpecificTranscript(videoUrl, platform, videoId);
   }
 }
 
@@ -361,6 +451,68 @@ async function extractContent(url: string): Promise<ExtractedContent> {
   console.log('🔍 Detected content type:', contentType);
   
   try {
+    // OPTIMIZATION: Fast path for Twitter - skip video transcription
+    if (contentType === 'twitter') {
+      console.log('⚡ Fast path for Twitter/X URL');
+      const tweetId = extractTwitterId(url);
+      
+      // Try direct meta extraction first (fastest)
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; PropagandaLens/2.0)'
+          },
+          signal: AbortSignal.timeout(5000) // Reduced timeout
+        });
+        
+        if (response.ok) {
+          const html = await response.text();
+          const metaTags = extractMetaTags(html);
+          const thumbnail = getBestThumbnail(metaTags, url);
+          const title = metaTags['og:title'] || metaTags['twitter:title'] || '';
+          const description = metaTags['og:description'] || metaTags['twitter:description'] || '';
+          
+          // Extract basic text content
+          let rawTextContent = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          console.log('Raw text content length:', rawTextContent.length);
+          console.log('Raw text preview:', rawTextContent.substring(0, 300));
+          
+          const filteredTextContent = filterMeaningfulContent(rawTextContent, 'twitter', url);
+          
+          console.log('Filtered text content length:', filteredTextContent.length);
+          console.log('Filtered text preview:', filteredTextContent.substring(0, 300));
+          
+          const embedUrl = generateTwitterEmbedUrl(url);
+          const embedHtml = generateTwitterEmbedHtml(url, tweetId);
+          
+          return {
+            type: 'twitter',
+            tweetId,
+            title,
+            description,
+            thumbnail,
+            content: filteredTextContent,
+            preview: description || filteredTextContent.substring(0, 500) + (filteredTextContent.length > 500 ? '...' : ''),
+            contentLength: filteredTextContent.length,
+            extractionMethod: 'meta-tags',
+            embedUrl: embedUrl,
+            embedHtml: embedHtml
+          };
+        }
+      } catch (quickError) {
+        console.log('Quick extraction failed, using Jina fallback');
+      }
+      
+      // Fallback to Jina if direct fetch fails
+      return await extractWithJina(url, contentType);
+    }
+    
     if (contentType === 'youtube') {
       console.log('YouTube URL detected');
       const videoId = extractYouTubeVideoId(url);
@@ -396,41 +548,37 @@ async function extractContent(url: string): Promise<ExtractedContent> {
       };
     }
     
-    // Handle TikTok videos with audio extraction
+    // Handle TikTok videos with audio extraction (skip for now to avoid timeout)
     if (contentType === 'tiktok') {
-      console.log('TikTok video detected');
+      console.log('TikTok video detected - skipping transcription for speed');
       const videoId = extractTikTokVideoId(url);
       
-      // Try to get transcript using audio pipeline
-      const transcript = await extractVideoTranscript(url, 'tiktok');
-      
+      // Skip transcript extraction to avoid timeout
       return {
         type: 'tiktok',
         videoId: videoId || undefined,
-        content: transcript || 'TikTok video - transcript not available',
-        transcript: transcript || undefined,
-        preview: transcript ? transcript.substring(0, 300) + (transcript.length > 300 ? '...' : '') : 'TikTok video',
-        contentLength: transcript ? transcript.length : 50,
-        extractionMethod: transcript ? 'assemblyai-universal' : 'tiktok-no-transcript'
+        content: 'TikTok video - transcript extraction disabled for performance',
+        transcript: undefined,
+        preview: 'TikTok video',
+        contentLength: 50,
+        extractionMethod: 'tiktok-no-transcript'
       };
     }
     
-    // Handle Instagram videos with transcript extraction
+    // Handle Instagram videos (skip transcription for speed)
     if (url.includes('instagram.com') && (url.includes('/reel/') || url.includes('/p/') || url.includes('/tv/'))) {
-      console.log('Instagram video/reel detected');
+      console.log('Instagram video/reel detected - skipping transcription for speed');
       const postId = extractInstagramPostId(url);
       
-      // Try to get transcript using universal transcription
-      const transcript = await extractVideoTranscript(url, 'instagram');
-      
+      // Skip transcript extraction to avoid timeout
       return {
         type: 'instagram',
         postId: postId || undefined,
-        content: transcript || 'Instagram video - transcript not available',
-        transcript: transcript || undefined,
-        preview: transcript ? transcript.substring(0, 300) + (transcript.length > 300 ? '...' : '') : 'Instagram video',
-        contentLength: transcript ? transcript.length : 50,
-        extractionMethod: transcript ? 'assemblyai-universal' : 'instagram-no-transcript'
+        content: 'Instagram video - transcript extraction disabled for performance',
+        transcript: undefined,
+        preview: 'Instagram video',
+        contentLength: 50,
+        extractionMethod: 'instagram-no-transcript'
       };
     }
     
@@ -489,9 +637,12 @@ async function extractContent(url: string): Promise<ExtractedContent> {
       extractionMethod: 'meta-tags'
     };
     
-    // Add platform-specific IDs
+    // Add platform-specific IDs and embed URLs
     if (contentType === 'twitter') {
       result.tweetId = extractTwitterId(url);
+      // Generate embed URL and HTML for Twitter
+      result.embedUrl = generateTwitterEmbedUrl(url);
+      result.embedHtml = generateTwitterEmbedHtml(url, result.tweetId);
     } else if (contentType === 'tiktok') {
       result.videoId = extractTikTokVideoId(url);
     } else if (url.includes('instagram.com')) {
@@ -902,7 +1053,7 @@ async function extractWithJina(url: string, detectedType: string): Promise<Extra
 
     const response = await fetch(jinaUrl, { 
       headers,
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(8000) // Reduced timeout for faster response
     });
     
     if (!response.ok) {
@@ -931,6 +1082,10 @@ async function extractWithJina(url: string, detectedType: string): Promise<Extra
     if (detectedType === 'twitter') {
       result.tweetId = extractTwitterId(url);
       console.log('🐦 Twitter detected with tweet ID:', result.tweetId);
+      
+      // Generate embed URL and HTML for Twitter
+      result.embedUrl = generateTwitterEmbedUrl(url);
+      result.embedHtml = generateTwitterEmbedHtml(url, result.tweetId);
       
       // Enhanced image extraction for X.com posts
       let foundThumbnail = null;
@@ -1036,10 +1191,13 @@ async function extractWithJina(url: string, detectedType: string): Promise<Extra
       error: jinaError.message
     };
     
-    // Still try to extract IDs even on error
+    // Still try to extract IDs and embed URLs even on error
     if (detectedType === 'twitter') {
       finalResult.tweetId = extractTwitterId(url);
       finalResult.thumbnail = `https://abs.twimg.com/errors/logo46x38.png`;
+      // Generate embed URL and HTML even on error
+      finalResult.embedUrl = generateTwitterEmbedUrl(url);
+      finalResult.embedHtml = generateTwitterEmbedHtml(url, finalResult.tweetId);
     } else if (detectedType === 'tiktok') {
       finalResult.videoId = extractTikTokVideoId(url);
     }
@@ -1241,6 +1399,64 @@ function createExtractionFlowDescription(
   };
 }
 
+// Simple language detection function
+function detectLanguage(text: string): { language: string; confidence: number } {
+  const portuguese = [
+    'que', 'não', 'uma', 'para', 'com', 'como', 'mais', 'isso', 'ser', 'tem', 'ele', 'ela', 'seu', 'sua',
+    'muito', 'mas', 'vai', 'aqui', 'ainda', 'só', 'mesmo', 'porque', 'quando', 'onde', 'então', 'já',
+    'Brasil', 'português', 'governo', 'presidente', 'política', 'economia'
+  ];
+  
+  const spanish = [
+    'que', 'no', 'una', 'para', 'con', 'como', 'más', 'esto', 'ser', 'tiene', 'él', 'ella', 'su',
+    'muy', 'pero', 'va', 'aquí', 'aún', 'sólo', 'mismo', 'porque', 'cuando', 'donde', 'entonces', 'ya'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  let ptScore = 0;
+  let esScore = 0;
+  let enScore = 0;
+  
+  // Count Portuguese indicators
+  portuguese.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    const matches = (lowerText.match(regex) || []).length;
+    ptScore += matches;
+  });
+  
+  // Count Spanish indicators  
+  spanish.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    const matches = (lowerText.match(regex) || []).length;
+    esScore += matches;
+  });
+  
+  // English indicators (common words)
+  const englishWords = ['the', 'and', 'that', 'for', 'with', 'you', 'this', 'but', 'not', 'are', 'have', 'from', 'they', 'we', 'been', 'to'];
+  englishWords.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    const matches = (lowerText.match(regex) || []).length;
+    enScore += matches;
+  });
+  
+  const totalWords = text.split(/\s+/).length;
+  const maxScore = Math.max(ptScore, esScore, enScore);
+  
+  if (maxScore === 0) {
+    return { language: 'en', confidence: 0.3 };
+  }
+  
+  const confidence = Math.min(maxScore / totalWords, 1.0);
+  
+  if (ptScore === maxScore) {
+    return { language: 'pt-br', confidence };
+  } else if (esScore === maxScore) {
+    return { language: 'es', confidence };
+  } else {
+    return { language: 'en', confidence };
+  }
+}
+
 // Simplified OpenAI analysis
 async function analyzeWithOpenAI(content: string, sourceInfo: any): Promise<AnalysisResult> {
   console.log('=== OPENAI ANALYSIS ===');
@@ -1248,6 +1464,10 @@ async function analyzeWithOpenAI(content: string, sourceInfo: any): Promise<Anal
   if (!OPENAI_API_KEY) {
     throw new Error('OpenAI API key not configured');
   }
+  
+  // Detect language first
+  const languageDetection = detectLanguage(content);
+  console.log('🌐 Language detected:', languageDetection.language, 'confidence:', languageDetection.confidence);
   
   // Validate content quality before proceeding with analysis
   const validation = validateContentQuality(content, sourceInfo?.sourceUrl || '');
@@ -1259,6 +1479,9 @@ async function analyzeWithOpenAI(content: string, sourceInfo: any): Promise<Anal
   console.log('✅ Content validation passed');
   console.log('Content to analyze length:', content.length);
   console.log('Source info type:', sourceInfo?.type);
+  console.log('=== CONTENT BEING ANALYZED ===');
+  console.log('First 500 chars:', content.substring(0, 500));
+  console.log('=== END CONTENT PREVIEW ===');
 
   // Handle debugging case where transcript extraction failed
   const isDebuggingCase = content === 'YouTube video - transcript not available' || content === 'TikTok video - transcript not available';
@@ -1288,6 +1511,11 @@ Respond with ONLY valid JSON indicating this is a debugging case:
 DEBUG INFO: ${content}`
     : `Analyze this content for propaganda techniques and manipulation tactics.
 
+LANGUAGE INSTRUCTIONS:
+${languageDetection.language === 'pt-br' ? 'RESPONDA EM PORTUGUÊS BRASILEIRO. Analise o conteúdo e forneça todas as respostas em português brasileiro.' : 
+  languageDetection.language === 'es' ? 'RESPONDA EN ESPAÑOL. Analiza el contenido y proporciona todas las respuestas en español.' : 
+  'RESPOND IN ENGLISH. Analyze the content and provide all responses in English.'}
+
 CRITICAL RULES:
 1. Focus ONLY on the actual content/message being shared
 2. DO NOT analyze the platform itself (Twitter/X, Instagram, TikTok, YouTube, etc.)
@@ -1295,9 +1523,25 @@ CRITICAL RULES:
 4. Only analyze the substantive content, message, or narrative being presented by the post author
 5. NEVER analyze error messages, system notifications, or technical failures
 
+${sourceInfo?.extractedData?.type === 'twitter' ? `
+MANDATORY TWEET TYPE CLASSIFICATION:
+You MUST classify this tweet into ONE of these categories:
+- HUMOR: Jokes, witty remarks, comedic observations${languageDetection.language === 'pt-br' ? ' (Piadas, observações humorísticas)' : ''}
+- MEME: Image macros, viral content, pop culture references${languageDetection.language === 'pt-br' ? ' (Memes, conteúdo viral)' : ''}  
+- SERIOUS: Factual statements, formal announcements, earnest discussions${languageDetection.language === 'pt-br' ? ' (Declarações factuais, discussões sérias)' : ''}
+- NEWS: Breaking news, current events, journalistic content${languageDetection.language === 'pt-br' ? ' (Notícias, eventos atuais)' : ''}
+- OPINION: Personal views, commentary, editorial statements${languageDetection.language === 'pt-br' ? ' (Opiniões pessoais, comentários)' : ''}
+- UNKNOWN: Cannot be clearly categorized${languageDetection.language === 'pt-br' ? ' (Não pode ser claramente categorizado)' : ''}
+
+CRITICAL: Your quickAssessment MUST start with exactly "[TYPE]" where TYPE is one of: HUMOR, MEME, SERIOUS, NEWS, OPINION, or UNKNOWN.
+${languageDetection.language === 'pt-br' ? 
+  'Exemplo: "[HUMOR] Este tweet usa humor para..." ou "[SERIOUS] Este tweet apresenta..."' : 
+  'Example format: "[HUMOR] This tweet uses humor to..."'}
+` : ''}
+
 Respond with ONLY valid JSON:
 {
-  "quickAssessment": "Brief assessment focusing on manipulative characteristics",
+  "quickAssessment": "${sourceInfo?.extractedData?.type === 'twitter' ? '[TYPE] Your actual assessment here...' : 'Brief assessment focusing on manipulative characteristics'}",
   "techniques": [
     {
       "name": "Example Technique",
@@ -1339,7 +1583,7 @@ CONTENT: "${content.substring(0, 1000)}"`;
         max_tokens: 1200,
         response_format: { type: "json_object" }
       }),
-      signal: AbortSignal.timeout(30000) // 30 second timeout
+      signal: AbortSignal.timeout(15000) // 15 second timeout for faster response
     });
 
     console.log('OpenAI response status:', response.status);
@@ -1354,6 +1598,7 @@ CONTENT: "${content.substring(0, 1000)}"`;
     const responseText = data.choices[0].message.content.trim();
     
     console.log('OpenAI response length:', responseText.length);
+    console.log('OpenAI raw response:', responseText.substring(0, 200) + '...');
     
     try {
       // Clean the response text to handle common JSON formatting issues
@@ -1369,7 +1614,14 @@ CONTENT: "${content.substring(0, 1000)}"`;
       
       const parsed = JSON.parse(cleanedResponse);
       console.log('JSON parsing successful');
-      return parsed;
+      console.log('Parsed quickAssessment:', parsed.quickAssessment?.substring(0, 100) + '...');
+      
+      // Add language detection results to the response
+      return {
+        ...parsed,
+        language: languageDetection.language,
+        languageConfidence: languageDetection.confidence
+      };
     } catch (parseError) {
       console.error('JSON parsing failed:', parseError);
       console.error('Raw response:', responseText.substring(0, 500));
@@ -1445,8 +1697,17 @@ serve(async (req) => {
       console.log('Valid URL detected, extracting content...');
       extractedContent = await extractContent(content.trim());
       
+      console.log('=== EXTRACTION RESULT ===');
+      console.log('Extracted content type:', extractedContent?.type);
+      console.log('Extracted content length:', extractedContent?.content?.length || 0);
+      console.log('Extracted content preview:', extractedContent?.content?.substring(0, 200) || 'NO CONTENT');
+      console.log('=== END EXTRACTION RESULT ===');
+      
       if (extractedContent.content) {
         analysisContent = extractedContent.content;
+        console.log('✅ Using extracted content for analysis');
+      } else {
+        console.log('⚠️ No content extracted, using original URL');
       }
     } else {
       console.log('Not a URL, analyzing direct text');
@@ -1466,6 +1727,7 @@ serve(async (req) => {
       analysisContent
     );
 
+    
     // Return response
     const response = {
       ...analysis,

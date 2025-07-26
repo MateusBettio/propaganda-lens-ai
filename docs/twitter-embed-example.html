@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitter Embed Example - Propaganda Lens AI</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .input-section {
+            margin-bottom: 20px;
+        }
+        input[type="url"] {
+            width: 70%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #1DA1F2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        button:hover {
+            background: #1a91da;
+        }
+        .tweet-embed-container {
+            margin: 20px 0;
+            border: 1px solid #e1e8ed;
+            border-radius: 12px;
+            padding: 20px;
+            background: #f7f9fa;
+        }
+        .analysis-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+        .error {
+            color: #e74c3c;
+            padding: 10px;
+            background: #fee;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .technique {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border-left: 4px solid #1DA1F2;
+        }
+        .technique h3 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+        .confidence {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .confidence.high { background: #d4edda; color: #155724; }
+        .confidence.medium { background: #fff3cd; color: #856404; }
+        .confidence.low { background: #f8d7da; color: #721c24; }
+        #tweetEmbed {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Propaganda Lens AI - Twitter Analysis</h1>
+        <p>Enter a Twitter/X URL to see the embedded tweet and propaganda analysis</p>
+        
+        <div class="input-section">
+            <input type="url" id="tweetUrl" placeholder="https://twitter.com/username/status/..." />
+            <button onclick="analyzeTweet()">Analyze Tweet</button>
+        </div>
+
+        <div id="tweetEmbed" style="display: none;"></div>
+        <div id="analysis" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">Analyzing tweet...</div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Replace with your actual Supabase URL and anon key
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+        async function analyzeTweet() {
+            const urlInput = document.getElementById('tweetUrl');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                showError('Please enter a Twitter/X URL');
+                return;
+            }
+
+            // Reset UI
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('tweetEmbed').style.display = 'none';
+            document.getElementById('analysis').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify({ content: url })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Analysis failed: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                console.log('Analysis result:', result);
+
+                // Display the embedded tweet
+                displayTweet(result.sourceInfo?.extractedData);
+
+                // Display the analysis
+                displayAnalysis(result);
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function displayTweet(extractedData) {
+            const embedContainer = document.getElementById('tweetEmbed');
+            
+            if (!extractedData || !extractedData.embedHtml) {
+                embedContainer.innerHTML = '<p>Tweet embed not available</p>';
+                embedContainer.style.display = 'block';
+                return;
+            }
+
+            // Method 1: Using the iframe embed (most reliable)
+            embedContainer.innerHTML = `
+                <div class="tweet-embed-container">
+                    <h2>Original Tweet:</h2>
+                    ${extractedData.embedHtml}
+                </div>
+            `;
+            
+            // Alternative Method 2: Using Twitter's widget.js (if you prefer the official embed)
+            // This requires loading Twitter's script
+            /*
+            embedContainer.innerHTML = `
+                <div class="tweet-embed-container">
+                    <h2>Original Tweet:</h2>
+                    <div id="tweet-container"></div>
+                </div>
+            `;
+            
+            // Load Twitter widgets script if not already loaded
+            if (!window.twttr) {
+                const script = document.createElement('script');
+                script.src = 'https://platform.twitter.com/widgets.js';
+                script.async = true;
+                script.onload = () => {
+                    window.twttr.widgets.createTweet(
+                        extractedData.tweetId,
+                        document.getElementById('tweet-container'),
+                        { theme: 'light' }
+                    );
+                };
+                document.body.appendChild(script);
+            } else {
+                window.twttr.widgets.createTweet(
+                    extractedData.tweetId,
+                    document.getElementById('tweet-container'),
+                    { theme: 'light' }
+                );
+            }
+            */
+            
+            embedContainer.style.display = 'block';
+        }
+
+        function displayAnalysis(result) {
+            const analysisDiv = document.getElementById('analysis');
+            
+            let html = `
+                <div class="analysis-section">
+                    <h2>📊 Propaganda Analysis</h2>
+                    <p><strong>Quick Assessment:</strong> ${result.quickAssessment}</p>
+                    
+                    <h3>🎯 Detected Techniques:</h3>
+            `;
+
+            result.techniques.forEach(technique => {
+                html += `
+                    <div class="technique">
+                        <h3>${technique.name} 
+                            <span class="confidence ${technique.confidence}">${technique.confidence} confidence</span>
+                        </h3>
+                        <p>${technique.description}</p>
+                        <p><em>Example: "${technique.example}"</em></p>
+                    </div>
+                `;
+            });
+
+            html += `
+                <h3>🤔 Alternative Perspective:</h3>
+                <p>${result.counterPerspective}</p>
+                
+                <h3>💭 Reflection Questions:</h3>
+                <ul>
+            `;
+
+            result.reflectionQuestions.forEach(question => {
+                html += `<li>${question}</li>`;
+            });
+
+            html += `
+                </ul>
+                </div>
+            `;
+
+            analysisDiv.innerHTML = html;
+            analysisDiv.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = `Error: ${message}`;
+            errorDiv.style.display = 'block';
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('tweetUrl').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                analyzeTweet();
+            }
+        });
+    </script>
+</body>
+</html>

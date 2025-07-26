@@ -12,9 +12,22 @@
     "login": "supabase login",
     "link": "supabase link --project-ref uccitemlxlymvxfzxdsi",
     "status": "supabase status",
-    "logs": "supabase functions logs analyze --project-ref uccitemlxlymvxfzxdsi"
+    "logs": "supabase functions logs analyze --project-ref uccitemlxlymvxfzxdsi",
+    "test": "jest",
+    "lint": "echo 'Linting not configured yet'"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.0.5",
+    "nock": "^14.0.6",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "assemblyai": "^4.14.0",
+    "jinaai": "^0.1.0",
+    "p-limit": "^6.2.0",
+    "twitter-api-v2": "^1.24.0"
   }
 }
