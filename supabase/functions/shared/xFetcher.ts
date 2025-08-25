@@ -161,6 +161,12 @@ export async function fetchFromX(rawUrl: string): Promise<NormalisedContent> {
   } catch (error) {
     console.error('❌ Error in fetchFromX:', error);
     
+    // If rate limited or API fails, try Jina Reader fallback
+    if (error.message.includes('429') || error.message.includes('401') || error.message.includes('403')) {
+      console.log('🔄 Twitter API failed, trying Jina Reader fallback...');
+      return await fetchWithJinaFallback(rawUrl, Deno.env.get('JINA_API_KEY'));
+    }
+    
     // Provide more user-friendly error messages
     if (error.message.includes('429')) {
       throw new Error('Twitter API rate limit exceeded. Please try again in 15 minutes, or try a different tweet.');
@@ -173,6 +179,48 @@ export async function fetchFromX(rawUrl: string): Promise<NormalisedContent> {
     }
     
     throw error;
+  }
+}
+
+// Jina Reader fallback for when Twitter API fails
+async function fetchWithJinaFallback(rawUrl: string, jinaApiKey?: string): Promise<NormalisedContent> {
+  console.log('🔄 Using Jina Reader fallback for:', rawUrl);
+  
+  if (!jinaApiKey) {
+    console.log('❌ No Jina API key configured');
+    throw new Error('Twitter API unavailable and no fallback configured');
+  }
+  
+  try {
+    const response = await fetch(`https://r.jina.ai/${rawUrl}`, {
+      headers: {
+        'Authorization': `Bearer ${jinaApiKey}`,
+        'X-With-Generated-Alt': 'true'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Jina API error: ${response.status}`);
+    }
+    
+    const content = await response.text();
+    console.log('✅ Jina Reader extracted content length:', content.length);
+    
+    // Detect language
+    const langDetection = detectLanguage(content);
+    
+    return {
+      text: content,
+      html: `<blockquote class="twitter-tweet"><a href="${rawUrl}"></a></blockquote>`,
+      meta: {
+        language: langDetection.language,
+        languageConfidence: langDetection.confidence,
+        extractionMethod: 'jina-fallback'
+      }
+    };
+  } catch (error) {
+    console.error('❌ Jina Reader fallback failed:', error);
+    throw new Error('Both Twitter API and fallback extraction failed');
   }
 }
 
